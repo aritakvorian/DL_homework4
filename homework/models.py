@@ -13,6 +13,8 @@ class MLPPlanner(nn.Module):
         self,
         n_track: int = 10,
         n_waypoints: int = 3,
+        hidden_size: int = 128,
+        num_layers: int = 3,
     ):
         """
         Args:
@@ -23,6 +25,20 @@ class MLPPlanner(nn.Module):
 
         self.n_track = n_track
         self.n_waypoints = n_waypoints
+        self.hidden_size = hidden_size
+
+        input_size = n_track * 2 * 2  # (left + right) boundaries, each with x, y coordinates
+        output_size = n_waypoints * 2  # x, y coordinates for waypoints
+
+        layers = []
+        for i in range(num_layers):
+            layers.append(
+                nn.Linear(input_size if i == 0 else hidden_size,
+                          hidden_size if i < num_layers - 1 else output_size)
+            )
+            if i < num_layers - 1:
+                layers.append(nn.ReLU())
+        self.mlp = nn.Sequential(*layers)
 
     def forward(
         self,
@@ -43,7 +59,19 @@ class MLPPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        raise NotImplementedError
+        batch_size = track_left.shape[0]
+
+        # Concatenate left and right boundaries along the feature dimension
+        input_tensor = torch.cat((track_left, track_right), dim=2)  # shape (b, n_track, 4)
+
+        # Flatten the track points for MLP input
+        input_tensor = input_tensor.view(batch_size, -1)  # shape (b, n_track * 4)
+
+        # Pass through the MLP
+        output_tensor = self.mlp(input_tensor)  # shape (b, n_waypoints * 2)
+
+        # Reshape to (b, n_waypoints, 2)
+        return output_tensor.view(batch_size, self.n_waypoints, 2)
 
 
 class TransformerPlanner(nn.Module):
