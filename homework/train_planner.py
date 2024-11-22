@@ -2,7 +2,7 @@ from datetime import datetime
 from pathlib import Path
 import torch
 from torch.utils.tensorboard import SummaryWriter
-from models import load_model
+from models import load_model, save_model
 from datasets.road_dataset import load_data
 
 def train_planner(
@@ -79,13 +79,14 @@ def train_planner(
         logger.add_scalar("val/loss", avg_val_loss, epoch)
 
         # Logging to console
-        if epoch == 0 or epoch == num_epochs - 1 or (epoch + 1) % 10 == 0:
-            print(
-                f"Epoch {epoch + 1}/{num_epochs}: "
-                f"train_loss={avg_train_loss:.4f}, val_loss={avg_val_loss:.4f}"
-            )
+
+        print(
+            f"Epoch {epoch + 1}/{num_epochs}: "
+            f"train_loss={avg_train_loss:.4f}, val_loss={avg_val_loss:.4f}"
+        )
 
     logger.close()
+    save_model(model)
 
 # Example usage
 if __name__ == "__main__":
