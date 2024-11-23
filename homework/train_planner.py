@@ -95,7 +95,7 @@ if __name__ == "__main__":
     val_data = load_data("../drive_data/train", shuffle=False)
 
     train_planner(
-        model_name="mlp_planner",
+        model_name="transformer_planner",
         train_data=train_data,
         val_data=val_data,
     )

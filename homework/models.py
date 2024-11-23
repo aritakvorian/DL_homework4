@@ -27,8 +27,8 @@ class MLPPlanner(nn.Module):
         self.n_waypoints = n_waypoints
         self.hidden_size = hidden_size
 
-        input_size = n_track * 2 * 2  # (left + right) boundaries, each with x, y coordinates
-        output_size = n_waypoints * 2  # x, y coordinates for waypoints
+        input_size = n_track * 2 * 2
+        output_size = n_waypoints * 2
 
         layers = []
         for i in range(num_layers):
@@ -61,14 +61,10 @@ class MLPPlanner(nn.Module):
         """
         batch_size = track_left.shape[0]
 
-        # Concatenate left and right boundaries along the feature dimension
-        input_tensor = torch.cat((track_left, track_right), dim=2)  # shape (b, n_track, 4)
+        input_tensor = torch.cat((track_left, track_right), dim=2)  # (b, n_track, 4)
+        input_tensor = input_tensor.view(batch_size, -1)  # (b, n_track * 4)
 
-        # Flatten the track points for MLP input
-        input_tensor = input_tensor.view(batch_size, -1)  # shape (b, n_track * 4)
-
-        # Pass through the MLP
-        output_tensor = self.mlp(input_tensor)  # shape (b, n_waypoints * 2)
+        output_tensor = self.mlp(input_tensor)  # (b, n_waypoints * 2)
 
         # Reshape to (b, n_waypoints, 2)
         return output_tensor.view(batch_size, self.n_waypoints, 2)
@@ -80,6 +76,9 @@ class TransformerPlanner(nn.Module):
         n_track: int = 10,
         n_waypoints: int = 3,
         d_model: int = 64,
+        nhead: int = 4,
+        num_layers: int = 3,
+        dropout: float = 0.1,
     ):
         super().__init__()
 
@@ -87,6 +86,17 @@ class TransformerPlanner(nn.Module):
         self.n_waypoints = n_waypoints
 
         self.query_embed = nn.Embedding(n_waypoints, d_model)
+
+        # Input projection to match d_model
+        input_size = n_track * 2  # Concatenated track_left and track_right
+        self.input_projection = nn.Linear(input_size * 2, d_model)
+
+        # Transformer decoder layers
+        decoder_layer = nn.TransformerDecoderLayer(d_model, nhead, dropout=dropout)
+        self.transformer_decoder = nn.TransformerDecoder(decoder_layer, num_layers)
+
+        # Final linear layer to predict x, y coordinates
+        self.output_projection = nn.Linear(d_model, 2)
 
     def forward(
         self,
@@ -107,7 +117,28 @@ class TransformerPlanner(nn.Module):
         Returns:
             torch.Tensor: future waypoints with shape (b, n_waypoints, 2)
         """
-        raise NotImplementedError
+        batch_size = track_left.shape[0]
+
+        # Concatenate left and right boundaries along the feature dimension
+        track_features = torch.cat((track_left, track_right), dim=2)  # (b, n_track, 4)
+
+        # Flatten the track features for projection
+        track_features = track_features.view(batch_size, -1)  # (b, n_track * 4)
+
+        # Project to d_model
+        memory = self.input_projection(track_features).unsqueeze(0)  # (1, b, d_model)
+
+        # Get learned queries
+        queries = self.query_embed.weight.unsqueeze(1).repeat(1, batch_size, 1)  # (n_waypoints, b, d_model)
+
+        # Decode waypoints
+        transformer_output = self.transformer_decoder(queries, memory)  # (n_waypoints, b, d_model)
+
+        # Project to x, y coordinates
+        waypoints = self.output_projection(transformer_output)  # (n_waypoints, b, 2)
+
+        # Reshape to (b, n_waypoints, 2)
+        return waypoints.permute(1, 0, 2)
 
 
 class CNNPlanner(torch.nn.Module):
